@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen Core Network Monitor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#0a0e13;
+    --surface:#11161d;
+    --surface-2:#171e27;
+    --border:#26313f;
+    --border-soft:#1c252f;
+    --ink:#e9edf2;
+    --muted:#8b98a8;
+    --faint:#59667a;
+    --accent:#e0a458;
+    --accent-ink:#241a0c;
+    --good:#3fcf8e;
+    --warn:#e0a458;
+    --bad:#ef6461;
+    --off:#4b5666;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;
+    padding-inline:max(16px, calc(50vw - 620px));
+    padding-block:28px 60px;
+    font-size:14.5px;
+  }
+  .wrap{max-width:1240px; margin:0 auto;}
+  h1,h2{font-family:"IBM Plex Mono",ui-monospace,monospace; margin:0;}
+  .num{font-variant-numeric: tabular-nums;}
+
+  /* ---- Header ---- */
+  header{
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+    gap:16px; padding-bottom:18px; margin-bottom:22px; border-bottom:1px solid var(--border);
+  }
+  .title-block h1{font-size:1.3rem; letter-spacing:.01em;}
+  .title-block p{margin:4px 0 0; color:var(--muted); font-size:.85rem;}
+  .conn-controls{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+  .status-pill{
+    display:inline-flex; align-items:center; gap:7px;
+    font-family:"IBM Plex Mono",monospace; font-size:.76rem; letter-spacing:.04em;
+    padding:6px 12px; border-radius:99px; border:1px solid var(--border); background:var(--surface);
+    color:var(--muted);
+  }
+  .status-pill .dot{width:8px; height:8px; border-radius:50%; background:var(--off); flex:none;}
+  .status-pill.live{color:var(--good); border-color:color-mix(in srgb, var(--good) 40%, var(--border));}
+  .status-pill.live .dot{background:var(--good); box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent);}
+  .status-pill.err{color:var(--bad); border-color:color-mix(in srgb, var(--bad) 40%, var(--border));}
+  .status-pill.err .dot{background:var(--bad);}
+  button{
+    font-family:"IBM Plex Mono",monospace; font-size:.82rem; font-weight:600; letter-spacing:.02em;
+    border-radius:5px; padding:9px 16px; cursor:pointer; border:1px solid var(--accent);
+    background:var(--accent); color:var(--accent-ink); transition:opacity .15s;
+  }
+  button:hover{opacity:.88;}
+  button:disabled{opacity:.4; cursor:not-allowed;}
+  button.ghost{background:transparent; color:var(--ink); border-color:var(--border);}
+  button.ghost:hover{border-color:var(--muted);}
+
+  /* ---- Stat row ---- */
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px;}
+  .stat{background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px 16px;}
+  .stat .label{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted);}
+  .stat .value{font-family:"IBM Plex Mono",monospace; font-size:1.6rem; font-weight:600; margin-top:4px;}
+  .stat .value small{font-size:.55em; color:var(--muted); font-weight:400; margin-left:2px;}
+
+  /* ---- Main grid ---- */
+  .main-grid{display:grid; grid-template-columns:minmax(280px,380px) 1fr; gap:18px; align-items:start;}
+
+  section.panel{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:18px;}
+  section.panel h2{font-size:.82rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-bottom:14px;}
+
+  /* ---- Topology ---- */
+  #topology{width:100%; height:auto; display:block;}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; font-size:.74rem; color:var(--muted);}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .legend .swatch{width:18px; height:2px; display:inline-block; border-radius:2px;}
+
+  /* ---- Node cards ---- */
+  .node-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px;}
+  .node-card{
+    background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:14px 16px;
+    display:flex; flex-direction:column; gap:8px; min-height:150px;
+  }
+  .node-card .head{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .node-card .name{font-family:"IBM Plex Mono",monospace; font-weight:700; font-size:.92rem;}
+  .node-card .kind{color:var(--muted); font-size:.72rem; margin-top:2px;}
+  .badge{
+    font-family:"IBM Plex Mono",monospace; font-size:.65rem; letter-spacing:.06em; text-transform:uppercase;
+    padding:3px 8px; border-radius:99px; white-space:nowrap; border:1px solid transparent;
+  }
+  .badge.off{color:var(--muted); background:color-mix(in srgb, var(--off) 22%, transparent); border-color:var(--border);}
+  .badge.direct{color:var(--good); background:color-mix(in srgb, var(--good) 16%, transparent); border-color:color-mix(in srgb, var(--good) 40%, transparent);}
+  .badge.relay{color:var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent); border-color:color-mix(in srgb, var(--warn) 45%, transparent);}
+  .node-card .reading{display:flex; align-items:baseline; gap:6px;}
+  .node-card .reading .v{font-family:"IBM Plex Mono",monospace; font-size:1.85rem; font-weight:600;}
+  .node-card .reading .u{color:var(--muted); font-size:.8rem;}
+  .node-card .meta{color:var(--faint); font-size:.7rem; font-family:"IBM Plex Mono",monospace;}
+  .node-card svg.spark{width:100%; height:34px; display:block; margin-top:auto;}
+
+  /* ---- PDR (link quality) ---- */
+  .pdr{display:flex; flex-direction:column; gap:5px;}
+  .pdr-top{display:flex; justify-content:space-between; align-items:baseline;}
+  .pdr-label{font-family:"IBM Plex Mono",monospace; font-size:.66rem; letter-spacing:.07em; text-transform:uppercase; color:var(--muted);}
+  .pdr-val{font-family:"IBM Plex Mono",monospace; font-size:.95rem; font-weight:600; color:var(--faint);}
+  .pdr-bar{position:relative; height:6px; border-radius:99px; background:var(--bg); border:1px solid var(--border-soft); overflow:hidden;}
+  .pdr-fill{height:100%; width:0; background:var(--off); transition:width .3s, background .3s;}
+  .pdr-mark{position:absolute; top:-1px; bottom:-1px; left:70%; width:1px; background:var(--muted); opacity:.7;}
+  .pdr-hint{font-family:"IBM Plex Mono",monospace; font-size:.6rem; color:var(--faint);}
+
+  /* ---- Log ---- */
+  .log-panel{margin-top:18px;}
+  .log-box{
+    max-height:230px; overflow-y:auto; font-family:"IBM Plex Mono",monospace; font-size:.78rem;
+    border:1px solid var(--border-soft); border-radius:6px; background:var(--bg);
+  }
+  .log-row{display:grid; grid-template-columns:78px 46px 50px 1fr 62px 90px; gap:10px; padding:5px 12px; border-bottom:1px solid var(--border-soft);}
+  .log-row:last-child{border-bottom:none;}
+  .log-row.head{color:var(--muted); font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; position:sticky; top:0; background:var(--bg);}
+  .log-row .t{color:var(--faint);}
+  .log-row .r-direct{color:var(--good);}
+  .log-row .r-relay{color:var(--warn);}
+  .empty-note{color:var(--faint); font-size:.82rem; padding:8px 2px;}
+
+  .support-note{color:var(--faint); font-size:.76rem; margin-top:10px; line-height:1.5;}
+  .support-note code{background:var(--surface-2); border:1px solid var(--border); border-radius:3px; padding:1px 5px;}
+
+  @media (max-width:860px){
+    .main-grid{grid-template-columns:1fr;}
+    .stats{grid-template-columns:repeat(2,1fr);}
+  }
+  @media (max-width:480px){
+    .stats{grid-template-columns:1fr 1fr;}
+    .log-row{grid-template-columns:56px 30px 36px 1fr 46px 62px; font-size:.7rem;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="title-block">
+      <h1>LUMEN CORE — Network Monitor</h1>
+      <p>Self-healing factory sensor mesh &middot; live from STM32 gateway controller</p>
+    </div>
+    <div class="conn-controls">
+      <span class="status-pill" id="connPill"><span class="dot"></span><span id="connText">Not connected</span></span>
+      <button id="connectBtn">Connect to STM32</button>
+      <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Packets received</div><div class="value num" id="statPackets">0</div></div>
+    <div class="stat"><div class="label">Nodes online</div><div class="value num" id="statOnline">0<small>/ 4</small></div></div>
+    <div class="stat"><div class="label">Self-healing events</div><div class="value num" id="statEvents">0</div></div>
+    <div class="stat"><div class="label">Session time</div><div class="value num" id="statUptime">00:00</div></div>
+  </div>
+
+  <div class="main-grid">
+    <section class="panel">
+      <h2>Mesh topology</h2>
+      <svg id="topology" viewBox="0 0 400 320" role="img" aria-label="Network topology: PC connects by wired USB to the STM32, which connects by wired UART to the Gateway ESP32; the Gateway then links wirelessly over ESP-NOW to Node A, Node B and Node C, with link color showing whether each node is currently direct or self-healing via a relay">
+        <!-- wired chain: PC -> STM32 -> Gateway -->
+        <line x1="86" y1="38" x2="128" y2="38" stroke="var(--muted)" stroke-width="2.5"/>
+        <line x1="234" y1="38" x2="276" y2="38" stroke="var(--muted)" stroke-width="2.5"/>
+        <text x="107" y="30" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8" fill="var(--faint)">USB</text>
+        <text x="255" y="30" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8" fill="var(--faint)">UART</text>
+
+        <rect x="10" y="18" width="76" height="40" rx="6" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.5"/>
+        <text x="48" y="36" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="var(--ink)">PC</text>
+        <text x="48" y="48" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="var(--muted)">dashboard</text>
+
+        <rect x="128" y="18" width="106" height="40" rx="6" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.5"/>
+        <text x="181" y="36" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" font-weight="700" fill="var(--ink)">STM32</text>
+        <text x="181" y="48" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="var(--muted)">F446RE</text>
+
+        <!-- wireless spokes, drawn/updated by JS, from Gateway down to A/B/C -->
+        <g id="spokes"></g>
+
+        <!-- gateway hub: the true center of the mesh -->
+        <rect x="276" y="14" width="114" height="48" rx="7" fill="var(--surface-2)" stroke="var(--accent)" stroke-width="2"/>
+        <text x="333" y="34" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">GATEWAY</text>
+        <text x="333" y="46" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="var(--muted)">ESP32 · mesh root</text>
+        <text x="333" y="57" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="var(--faint)" id="gwFlame">flame: —</text>
+
+        <!-- wireless node hubs -->
+        <g id="nodeHubs"></g>
+      </svg>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--muted)"></span>Wired (USB / UART)</span>
+        <span><span class="swatch" style="background:var(--good)"></span>Direct to gateway</span>
+        <span><span class="swatch" style="background:var(--warn); background-image:repeating-linear-gradient(90deg,var(--warn) 0 4px, transparent 4px 7px)"></span>Relayed (self-healing)</span>
+        <span><span class="swatch" style="background:var(--off)"></span>No data yet</span>
+      </div>
+      <p class="support-note">
+        Open this page in <strong>Chrome or Edge on a laptop/desktop</strong> and click Connect — it talks straight to the STM32's ST-LINK COM port via the Web Serial API, no separate script needed. Close PuTTY or any other program using that port first.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Node readings</h2>
+      <div class="node-grid" id="nodeGrid"><!-- filled by JS --></div>
+
+      <div class="log-panel">
+        <h2>Live packet log</h2>
+        <div class="log-box">
+          <div class="log-row head"><span>Time</span><span>Node</span><span>Seq</span><span>Value</span><span>PDR</span><span>Route</span></div>
+          <div id="logBody"><div class="empty-note">Waiting for connection…</div></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+</div>
+
+<script>
+const NODE_META = {
+  NA: { label: "Node A", kind: "DHT11 · Temp/Humidity", unit: "°C" },
+  NB: { label: "Node B", kind: "SW-420 · Vibration",     unit: "" },
+  NC: { label: "Node C", kind: "MQ-2 · Gas / Smoke",     unit: "" },
+  NG: { label: "Gateway", kind: "IR · Flame",            unit: "" },
+};
+const NODE_ORDER = ["NG","NA","NB","NC"];
+const WIRELESS_NODES = ["NA","NB","NC"];   // the only ones that get a wireless spoke — NG *is* the gateway
+const OFFLINE_MS = 12000;
+const HISTORY_LEN = 30;
+
+// Topology layout: matches the real chain PC -> STM32 -> Gateway -> {A,B,C} over ESP-NOW
+const GATEWAY_ANCHOR = { x: 333, y: 62 };  // bottom-center of the Gateway box
+const NODE_POS = {
+  NA: { x: 90,  y: 262 },
+  NB: { x: 210, y: 286 },
+  NC: { x: 330, y: 262 },
+};
+
+let state = {};
+NODE_ORDER.forEach(id => state[id] = {
+  history: [], lastValue: null, lastRoute: null, lastPdr: null, lastSeen: 0, packetCount: 0, everSeen: false
+});
+
+let totalPackets = 0;
+let selfHealingEvents = 0;
+let connectedSince = null;
+let port = null, reader = null, keepReading = false;
+
+const $ = sel => document.querySelector(sel);
+const nodeGrid = $("#nodeGrid");
+const logBody = $("#logBody");
+const spokesG = $("#spokes");
+const nodeHubsG = $("#nodeHubs");
+
+function buildNodeCards() {
+  nodeGrid.innerHTML = "";
+  NODE_ORDER.forEach(id => {
+    const meta = NODE_META[id];
+    const card = document.createElement("div");
+    card.className = "node-card";
+    card.id = "card-" + id;
+    card.innerHTML = `
+      <div class="head">
+        <div>
+          <div class="name">${meta.label}</div>
+          <div class="kind">${meta.kind}</div>
+        </div>
+        <span class="badge off" id="badge-${id}">no data</span>
+      </div>
+      <div class="reading">
+        <span class="v num" id="val-${id}">—</span>
+        <span class="u">${meta.unit}</span>
+      </div>
+      <div class="meta" id="meta-${id}">never seen</div>
+      <div class="pdr">
+        <div class="pdr-top"><span class="pdr-label">Link PDR</span><span class="pdr-val num" id="pdr-${id}">—</span></div>
+        <div class="pdr-bar"><div class="pdr-fill" id="pdrfill-${id}"></div><div class="pdr-mark" title="relay threshold 70%"></div></div>
+        <div class="pdr-hint" id="pdrhint-${id}">${id === "NG" ? "local sensor · no radio link" : "direct link to gateway · relay below 70%"}</div>
+      </div>
+      <svg class="spark" id="spark-${id}" viewBox="0 0 200 34" preserveAspectRatio="none">
+        <polyline points="" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+    nodeGrid.appendChild(card);
+  });
+}
+
+function buildTopology() {
+  spokesG.innerHTML = "";
+  nodeHubsG.innerHTML = "";
+  WIRELESS_NODES.forEach(id => {
+    const pos = NODE_POS[id];
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("id", "spoke-" + id);
+    line.setAttribute("x1", pos.x); line.setAttribute("y1", pos.y);
+    line.setAttribute("x2", GATEWAY_ANCHOR.x); line.setAttribute("y2", GATEWAY_ANCHOR.y);
+    line.setAttribute("stroke", "var(--off)");
+    line.setAttribute("stroke-width", "2.5");
+    line.setAttribute("stroke-dasharray", "2 5");
+    spokesG.appendChild(line);
+
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.innerHTML = `
+      <circle cx="${pos.x}" cy="${pos.y}" r="24" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.5" id="hub-${id}"/>
+      <text x="${pos.x}" y="${pos.y-2}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" font-weight="700" fill="var(--ink)">${id.slice(1)}</text>
+      <text x="${pos.x}" y="${pos.y+10}" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="7.5" fill="var(--muted)" id="hubstat-${id}">—</text>
+    `;
+    nodeHubsG.appendChild(g);
+  });
+}
+
+function fmtTime(d) {
+  return d.toTimeString().slice(0,8);
+}
+
+function updateSpark(id) {
+  const h = state[id].history;
+  const svg = document.getElementById("spark-" + id);
+  const poly = svg.querySelector("polyline");
+  if (h.length < 2) { poly.setAttribute("points",""); return; }
+  const min = Math.min(...h), max = Math.max(...h);
+  const range = (max - min) || 1;
+  const stepX = 200 / (HISTORY_LEN - 1);
+  const pts = h.map((v,i) => {
+    const x = i * stepX;
+    const y = 30 - ((v - min) / range) * 26;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  poly.setAttribute("points", pts);
+}
+
+function refreshCard(id) {
+  const s = state[id];
+  const badge = document.getElementById("badge-" + id);
+  const val = document.getElementById("val-" + id);
+  const meta = document.getElementById("meta-" + id);
+  const hub = document.getElementById("hub-" + id);
+  const hubstat = document.getElementById("hubstat-" + id);
+  const spoke = document.getElementById("spoke-" + id);
+
+  const age = Date.now() - s.lastSeen;
+  const isOffline = !s.everSeen || age > OFFLINE_MS;
+
+  val.textContent = s.lastValue === null ? "—" : s.lastValue;
+
+  if (isOffline) {
+    badge.className = "badge off"; badge.textContent = s.everSeen ? "offline" : "no data";
+    meta.textContent = s.everSeen ? `last seen ${Math.round(age/1000)}s ago` : "never seen";
+    if (hub) hub.setAttribute("stroke", "var(--border)");
+    if (hubstat) hubstat.textContent = "—";
+    if (spoke) { spoke.setAttribute("stroke", "var(--off)"); spoke.setAttribute("stroke-dasharray", "2 5"); }
+  } else if (s.lastRoute === "R") {
+    badge.className = "badge relay"; badge.textContent = "relay · self-healing";
+    meta.textContent = `packet #${s.packetCount} · ${fmtTime(new Date(s.lastSeen))}`;
+    if (hub) hub.setAttribute("stroke", "var(--warn)");
+    if (hubstat) hubstat.textContent = "RELAY";
+    if (spoke) { spoke.setAttribute("stroke", "var(--warn)"); spoke.setAttribute("stroke-dasharray", "6 4"); }
+  } else {
+    badge.className = "badge direct"; badge.textContent = "direct";
+    meta.textContent = `packet #${s.packetCount} · ${fmtTime(new Date(s.lastSeen))}`;
+    if (hub) hub.setAttribute("stroke", "var(--good)");
+    if (hubstat) hubstat.textContent = "OK";
+    if (spoke) { spoke.setAttribute("stroke", "var(--good)"); spoke.setAttribute("stroke-dasharray", "0"); }
+  }
+
+  // Link PDR (packet delivery ratio of the node's DIRECT link to the gateway)
+  const pdrEl = document.getElementById("pdr-" + id);
+  const pdrFill = document.getElementById("pdrfill-" + id);
+  if (id === "NG") {
+    pdrEl.textContent = "local";
+    pdrFill.style.width = "0%";
+  } else if (isOffline || s.lastPdr === null) {
+    pdrEl.textContent = "—"; pdrEl.style.color = "var(--faint)";
+    pdrFill.style.width = "0%"; pdrFill.style.background = "var(--off)";
+  } else {
+    const col = s.lastPdr >= 70 ? "var(--good)" : "var(--bad)";
+    pdrEl.textContent = s.lastPdr + "%"; pdrEl.style.color = col;
+    pdrFill.style.width = s.lastPdr + "%"; pdrFill.style.background = col;
+  }
+
+  // The Gateway (NG) has no spoke of its own — it IS the hub — so its own
+  // sensor reading (flame) is shown as a small line inside the Gateway box instead.
+  if (id === "NG") {
+    const gwFlame = document.getElementById("gwFlame");
+    if (gwFlame) {
+      gwFlame.textContent = isOffline
+        ? "flame: —"
+        : `flame: ${s.lastValue}${s.lastRoute === "R" ? " (relay)" : ""}`;
+      gwFlame.setAttribute("fill", isOffline ? "var(--faint)" : (s.lastRoute === "R" ? "var(--warn)" : "var(--good)"));
+    }
+  }
+
+  updateSpark(id);
+}
+
+function updateStats() {
+  $("#statPackets").textContent = totalPackets;
+  const online = NODE_ORDER.filter(id => state[id].everSeen && (Date.now()-state[id].lastSeen) <= OFFLINE_MS).length;
+  $("#statOnline").innerHTML = online + "<small>/ 4</small>";
+  $("#statEvents").textContent = selfHealingEvents;
+}
+
+function addLogRow(time, node, seq, val, route, pdr) {
+  if (logBody.querySelector(".empty-note")) logBody.innerHTML = "";
+  const row = document.createElement("div");
+  row.className = "log-row";
+  row.innerHTML = `<span class="t">${time}</span><span>${node.replace("N","")}</span><span class="num">${seq}</span><span class="num">${val}</span><span class="num">${pdr === null ? '—' : pdr + '%'}</span><span class="${route==='R' ? 'r-relay':'r-direct'}">${route==='R' ? 'RELAY':'direct'}</span>`;
+  logBody.insertBefore(row, logBody.firstChild);
+  while (logBody.children.length > 60) logBody.removeChild(logBody.lastChild);
+}
+
+function handleLine(line) {
+  if (!line) return;
+  const parts = line.split(",");
+  if (parts.length !== 4 && parts.length !== 5) return;
+  let [node, seq, val, route, pdrRaw] = parts;
+  node = node.trim(); route = route.trim();
+  let pdr = null;
+  if (pdrRaw !== undefined) {
+    const p = parseInt(pdrRaw, 10);
+    if (!isNaN(p)) pdr = Math.max(0, Math.min(100, p));
+  }
+  if (!NODE_META[node]) return;
+
+  const s = state[node];
+  const numVal = parseFloat(val);
+  const displayVal = isNaN(numVal) ? val : numVal;
+
+  if (s.everSeen && s.lastRoute === "D" && route === "R") selfHealingEvents++;
+
+  s.everSeen = true;
+  s.lastValue = displayVal;
+  s.lastRoute = route;
+  s.lastPdr = pdr;
+  s.lastSeen = Date.now();
+  s.packetCount++;
+  if (!isNaN(numVal)) {
+    s.history.push(numVal);
+    if (s.history.length > HISTORY_LEN) s.history.shift();
+  }
+
+  totalPackets++;
+  addLogRow(fmtTime(new Date()), node, seq, displayVal, route, pdr);
+  refreshCard(node);
+  updateStats();
+}
+
+function setConnUI(connected, errText) {
+  const pill = $("#connPill"), text = $("#connText");
+  pill.classList.remove("live","err");
+  if (errText) {
+    pill.classList.add("err"); text.textContent = errText;
+  } else if (connected) {
+    pill.classList.add("live"); text.textContent = "Live — receiving data";
+  } else {
+    text.textContent = "Not connected";
+  }
+  $("#connectBtn").disabled = connected;
+  $("#disconnectBtn").disabled = !connected;
+}
+
+async function connectSerial() {
+  if (!("serial" in navigator)) {
+    setConnUI(false, "Web Serial not supported — use Chrome or Edge");
+    return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    keepReading = true;
+    connectedSince = Date.now();
+    setConnUI(true);
+    readLoop();
+  } catch (err) {
+    setConnUI(false, "Connection cancelled or failed");
+  }
+}
+
+async function readLoop() {
+  const textDecoder = new TextDecoderStream();
+  const readableClosed = port.readable.pipeTo(textDecoder.writable).catch(()=>{});
+  reader = textDecoder.readable.getReader();
+  let buffer = "";
+  try {
+    while (keepReading) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let lines = buffer.split("\n");
+      buffer = lines.pop();
+      for (const l of lines) handleLine(l.trim());
+    }
+  } catch (err) {
+    setConnUI(false, "Connection lost");
+  } finally {
+    reader.releaseLock();
+    await readableClosed;
+  }
+}
+
+async function disconnectSerial() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch(e){}
+  try { if (port) await port.close(); } catch(e){}
+  port = null;
+  setConnUI(false);
+}
+
+$("#connectBtn").addEventListener("click", connectSerial);
+$("#disconnectBtn").addEventListener("click", disconnectSerial);
+
+if ("serial" in navigator) {
+  navigator.serial.addEventListener("disconnect", () => setConnUI(false, "Device unplugged"));
+}
+
+setInterval(() => {
+  NODE_ORDER.forEach(refreshCard);
+  updateStats();
+  if (connectedSince && keepReading) {
+    const secs = Math.floor((Date.now() - connectedSince)/1000);
+    const mm = String(Math.floor(secs/60)).padStart(2,"0");
+    const ss = String(secs%60).padStart(2,"0");
+    $("#statUptime").textContent = `${mm}:${ss}`;
+  }
+}, 1000);
+
+buildNodeCards();
+buildTopology();
+NODE_ORDER.forEach(refreshCard);
+if (!("serial" in navigator)) setConnUI(false, "Web Serial not supported — use Chrome or Edge");
+</script>
+</body>
+</html>
